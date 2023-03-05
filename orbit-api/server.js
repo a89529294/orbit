@@ -5,6 +5,8 @@ const cors = require("cors")
 const jwtDecode = require("jwt-decode")
 const mongoose = require("mongoose")
 const { expressjwt: jwt } = require("express-jwt")
+const cookieParser = require("cookie-parser")
+const csrf = require("csurf")
 
 const dashboardData = require("./data/dashboard")
 const User = require("./data/User")
@@ -14,6 +16,7 @@ const { createToken, hashPassword, verifyPassword } = require("./util")
 
 const app = express()
 
+app.use(cookieParser())
 app.use(cors())
 app.use(bodyParser.urlencoded({ extended: false }))
 app.use(bodyParser.json())
@@ -42,6 +45,10 @@ app.post("/api/authenticate", async (req, res) => {
 
       const decodedToken = jwtDecode(token)
       const expiresAt = decodedToken.exp
+
+      res.cookie("token", token, {
+        httpOnly: true,
+      })
 
       res.json({
         message: "Authentication successful!",
@@ -99,6 +106,10 @@ app.post("/api/signup", async (req, res) => {
         role,
       }
 
+      res.cookie("token", token, {
+        httpOnly: true,
+      })
+
       return res.json({
         message: "User created!",
         token,
@@ -117,19 +128,49 @@ app.post("/api/signup", async (req, res) => {
   }
 })
 
+const attachUser = (req, res, next) => {
+  const token = req.cookies.token
+  if (!token) return res.status(401).json({ message: "Authentication invalid" })
+
+  const decodedToken = jwtDecode(token)
+
+  if (!decodedToken) return res.status(401).json({ message: "Authentication invalid 2" })
+
+  req.user = decodedToken
+  next()
+}
+
 const checkJWT = jwt({
   secret: process.env.JWT_SECRET,
   issuer: "api.orbit",
   audience: "api.orbit",
   algorithms: ["HS256"],
+  getToken: (req) => req.cookies.token,
+})
+
+const requireAdmin = (req, res, next) => {
+  if (req.user.role !== "admin") return res.status(401).json({ message: "You are not an admin!" })
+  next()
+}
+
+app.use(attachUser)
+app.use(
+  csrf({
+    cookie: true,
+  })
+)
+
+app.get("/api/csrf-token", (req, res) => {
+  res.json({
+    csrfToken: req.csrfToken(),
+  })
 })
 
 app.get("/api/dashboard-data", checkJWT, (req, res) => {
-  console.log(req.auth)
   res.json(dashboardData)
 })
 
-app.patch("/api/user-role", async (req, res) => {
+app.patch("/api/user-role", attachUser, async (req, res) => {
   try {
     const { role } = req.body
     const allowedRoles = ["user", "admin"]
@@ -146,18 +187,21 @@ app.patch("/api/user-role", async (req, res) => {
   }
 })
 
-app.get("/api/inventory", async (req, res) => {
+app.get("/api/inventory", checkJWT, requireAdmin, async (req, res) => {
   try {
-    const inventoryItems = await InventoryItem.find()
+    const inventoryItems = await InventoryItem.find({ user: req.user.sub })
     res.json(inventoryItems)
   } catch (err) {
     return res.status(400).json({ error: err })
   }
 })
 
-app.post("/api/inventory", async (req, res) => {
+app.post("/api/inventory", checkJWT, requireAdmin, async (req, res) => {
   try {
-    const inventoryItem = new InventoryItem(req.body)
+    const inventoryItem = new InventoryItem({
+      ...req.body,
+      user: req.user.sub,
+    })
     await inventoryItem.save()
     res.status(201).json({
       message: "Inventory item created!",
@@ -171,9 +215,9 @@ app.post("/api/inventory", async (req, res) => {
   }
 })
 
-app.delete("/api/inventory/:id", async (req, res) => {
+app.delete("/api/inventory/:id", checkJWT, requireAdmin, async (req, res) => {
   try {
-    const deletedItem = await InventoryItem.findOneAndDelete({ _id: req.params.id })
+    const deletedItem = await InventoryItem.findOneAndDelete({ _id: req.params.id, user: req.user.sub })
     res.status(201).json({
       message: "Inventory item deleted!",
       deletedItem,

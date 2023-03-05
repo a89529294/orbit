@@ -13,7 +13,7 @@ function toLocalStorage(key, value) {
 
 const AuthProvider = ({ children }) => {
   const [authState, setAuthState] = useState({
-    token: fromLocalStorage("token", null),
+    token: null,
     expiresAt: fromLocalStorage("expiresAt", null),
     userInfo: fromLocalStorage("userInfo", {}),
   })
@@ -25,13 +25,12 @@ const AuthProvider = ({ children }) => {
       userInfo,
       expiresAt,
     })
-    toLocalStorage("token", token)
     toLocalStorage("userInfo", userInfo)
     toLocalStorage("expiresAt", expiresAt)
   }
 
   const isAuthenticated = () => {
-    if (!authState.token || !authState.expiresAt) return false
+    if (!authState.expiresAt) return false
     return authState.expiresAt > new Date().getTime() / 1000
   }
 
@@ -41,11 +40,11 @@ const AuthProvider = ({ children }) => {
 
   const logout = () => {
     setAuthState({ token: null, expiresAt: null, userInfo: {} })
-    localStorage.removeItem("token")
     localStorage.removeItem("userInfo")
     localStorage.removeItem("expiresAt")
     history.push("/login")
   }
+
   return (
     <Provider
       value={{

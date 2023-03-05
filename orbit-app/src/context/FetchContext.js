@@ -1,21 +1,23 @@
-import React, { createContext, useContext } from "react"
+import React, { createContext, useEffect } from "react"
 import axios from "axios"
-import { AuthContext } from "./AuthContext"
 
 const FetchContext = createContext()
 const { Provider } = FetchContext
 
 const FetchProvider = ({ children }) => {
-  const {
-    authState: { token },
-  } = useContext(AuthContext)
-
   const authAxios = axios.create({
     baseURL: process.env.REACT_APP_API_URL,
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
   })
+
+  useEffect(() => {
+    const getCsrfToken = async () => {
+      const { data } = await authAxios.get("/csrf-token")
+      console.log(data)
+      authAxios.defaults.headers["X-CSRF-TOKEN"] = data.csrfToken
+    }
+
+    getCsrfToken()
+  }, [])
 
   return (
     <Provider
